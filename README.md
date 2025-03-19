@@ -1,2 +1,2 @@
-# vrdog-web-app
+# vrdog-webapp
 FRONTEND / BACKEND
