@@ -1,0 +1,38 @@
+# Node.js
+node_modules
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Logs
+logs
+*.log
+logs.zip
+
+# Dependency directories in both client and server
+client/node_modules
+server/node_modules
+
+# Build and output files (if applicable)
+dist
+build
+.env
+*.env.local
+
+# IDE and system-specific files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Temporary files or system caches
+*.swp
+*.swo
+*.bak
+*.tmp
+.idea/
+.vim/
+*.vscode/
+
+# Miscellaneous
+*.iml
+coverage/
