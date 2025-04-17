@@ -1,51 +1,60 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Client</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <h2>vrdog livestream</h2>
-  <video id="remoteVideo" autoplay playsinline></video>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Client</title>
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+        <h2>vrdog livestream</h2>
+        <video id="remoteVideo" autoplay playsinline></video>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
+        <script src="/socket.io/socket.io.js"></script>
+        <script>
+            const socket = io()
 
-    const peerConnection = new RTCPeerConnection({
-      iceServers: []
-    });
+            const peerConnection = new RTCPeerConnection({
+                iceServers: [],
+            })
 
-    const remoteVideo = document.getElementById('remoteVideo');
+            const remoteVideo = document.getElementById('remoteVideo')
 
-    // Handle incoming ICE candidates https://developer.mozilla.org/en-US/docs/Web/API/RTCIceCandidate
-    socket.on('message', async (data) => {
-      if (data.type === 'offer') {
-        console.log('Received SDP offer');
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit('message', { type: 'answer', answer });
-      } else if (data.type === 'ice-candidate') {
-        console.log('Received ICE candidate');
-        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-      }
-    });
+            // Handle incoming ICE candidates https://developer.mozilla.org/en-US/docs/Web/API/RTCIceCandidate
+            socket.on('message', async (data) => {
+                if (data.type === 'offer') {
+                    console.log(`Received SDP offer ${data}`)
+                    await peerConnection.setRemoteDescription(
+                        new RTCSessionDescription(data.offer)
+                    )
+                    const answer = await peerConnection.createAnswer()
+                    await peerConnection.setLocalDescription(answer)
+                    socket.emit('message', { type: 'answer', answer })
+                } else if (data.type === 'ice-candidate') {
+                    console.log('Received ICE candidate')
+                    await peerConnection.addIceCandidate(
+                        new RTCIceCandidate(data.candidate)
+                    )
+                }
+            })
 
-    peerConnection.ontrack = (event) => {
-      console.log('Received remote stream');
-      remoteVideo.srcObject = event.streams[0];
-    };
+            peerConnection.ontrack = (event) => {
+                console.log('Received remote stream')
+                remoteVideo.srcObject = event.streams[0]
+            }
 
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit('message', { type: 'ice-candidate', candidate: event.candidate });
-      }
-    };
+            peerConnection.ondatachannel = (event) => {
+                console.log(event.data)
+            }
 
-    console.log('Waiting for video stream...');
-  </script>
-</body>
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('message', {
+                        type: 'ice-candidate',
+                        candidate: event.candidate,
+                    })
+                }
+            }
+        </script>
+    </body>
 </html>

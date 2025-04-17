@@ -9,6 +9,8 @@ logs
 *.log
 logs.zip
 
+video.mp4
+
 # Dependency directories in both client and server
 client/node_modules
 server/node_modules
