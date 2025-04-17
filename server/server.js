@@ -15,7 +15,8 @@ const io = new Server(server, {
 app.use(express.static(__dirname + '/../client'));
 
 let worker, router, plainTransport, producer;
-const transports = new Map()(async () => {
+const transports = new Map();
+(async () => {
     worker = await mediasoup.createWorker();
     router = await worker.createRouter({
         mediaCodecs: [
