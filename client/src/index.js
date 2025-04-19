@@ -2,9 +2,9 @@ import { Device } from 'mediasoup-client';
 
 const socket = io();
 const videoElement = document.getElementById('remoteVideo');
-document.body.addEventListener('click', () => {
-    if (videoElement.paused) {
-        videoElement.play();
+document.body.addEventListener('click',  () => {
+    if (videoElement.srcObject) {
+       videoElement.play().then(() => console.log('Playback started!'))
     }
 });
 
@@ -38,20 +38,17 @@ socket.on('connect', async () => {
 
     recvTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
         console.log('recvTransport connect event');
-        await socket.emit(
-            'connectTransport',
-            { transportId: recvTransport.id, dtlsParameters },
-            () => {
+        await socket.emit('connectTransport', { transportId: recvTransport.id, dtlsParameters: dtlsParameters }, () => {
                 console.log('Transport connected to server');
                 callback();
             }
         );
+        console.log("connectTransport emitted")
     });
 
     recvTransport.on('connectionstatechange', (state) => {
         console.log('recvTransport connection state:', state);
     });
-    console.log("consume???")
     socket.emit(
         'consume',
         {
@@ -71,18 +68,24 @@ socket.on('connect', async () => {
     
                 const stream = new MediaStream();
                 stream.addTrack(consumer.track);
+                console.log('Track readyState:', consumer.track.readyState);
+                console.log('Is track enabled?', consumer.track.enabled);
+
+                videoElement.muted = true;
                 videoElement.srcObject = stream;
-    
-                videoElement.onloadedmetadata = () => {
-                    console.log('Video metadata loaded ✅');
-                    videoElement.play().catch(e => console.error('Video play failed:', e));
+                console.log(videoElement.srcObject)
+                videoElement.play()
+                
+                videoElement.onwaiting = () => {
+                    console.log("Video is buffering...");
                 };
+                
     
                 videoElement.onerror = (e) => {
                     console.error('Video element error:', e);
                 };
     
-                console.log('Stream assigned to video');
+                console.log('Stream assigned to video', stream);
             } catch (err) {
                 console.error('Error while consuming media:', err);
             }

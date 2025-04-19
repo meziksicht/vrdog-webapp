@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     connectionStateRecovery: {
-        maxDisconnectionDuration: 2 * 60 * 1000,
+        maxDisconnectionDuration: 2 * 60 * 1000, //2 minutes
         skipMiddlewares: true,
     },
 });
@@ -17,6 +17,7 @@ app.use(express.static(__dirname + '/../client'));
 let worker, router, plainTransport, producer;
 const transports = new Map();
 
+//RTP producer creation
 (async () => {
     try {
         worker = await mediasoup.createWorker();
@@ -31,6 +32,7 @@ const transports = new Map();
                     clockRate: 90000,
                     parameters: {
                         'packetization-mode': 1,
+                        'profile-level-id': '42e01f',
                     },
                 },
             ],
@@ -49,6 +51,8 @@ const transports = new Map();
 
         plainTransport.on('tuple', async () => {
             if (producer) return;
+            console.log("frames")
+            console.log('Incoming RTP from FFmpeg at:', plainTransport.tuple.remoteIp, plainTransport.tuple.remotePort);
 
             try {
                 producer = await plainTransport.produce({
@@ -61,6 +65,7 @@ const transports = new Map();
                                 clockRate: 90000,
                                 parameters: {
                                     'packetization-mode': 1,
+                                    'profile-level-id': '42e01f',
                                 },
                             },
                         ],
@@ -87,14 +92,9 @@ io.on('connection', (socket) => {
             console.error('Router is not initialized yet');
             return;
         }
-        console.log("rtpCapab emitted")
         socket.emit('rtpCapabilities', router.rtpCapabilities);
     });
-
-    socket.on('message', (data) => {
-        console.log('Received message:', data);
-        socket.broadcast.emit('message', data);
-    });
+ 
 
     socket.on('createTransport', async (callback) => {
         const transport = await router.createWebRtcTransport({
@@ -103,9 +103,9 @@ io.on('connection', (socket) => {
             enableTcp: true,
             preferUdp: true,
         });
-    
+        
         transports.set(transport.id, transport);
-    
+        console.log("Transport created", transport.id)
         callback({
             id: transport.id,
             iceParameters: transport.iceParameters,
@@ -115,27 +115,32 @@ io.on('connection', (socket) => {
     });
     
 
-    socket.on('connectTransport', async ({ transportId, dtlsParameters }) => {
-        console.log("transport connected")
-        const transport = transports.get(transportId);
-        await transport.connect({ dtlsParameters });
-        socket.emit('transportConnected');
+    socket.on('connectTransport', async ({ transportId, dtlsParameters }, callback) => {
+        try {
+            const transport = transports.get(transportId);
+            await transport.connect({ dtlsParameters });
+            console.log(`✅ Transport ${transportId} connected`);
+            callback(); // ✅ Acknowledge back to client
+        } catch (err) {
+            console.error('❌ Error connecting transport:', err);
+            callback({ error: err.message }); // Optional: send back error info
+        }
     });
+    
 
     socket.on('consume', async ({ transportId, rtpCapabilities }, callback) => {
-        console.log("consume?");
         if (!producer) {
             callback({ error: 'No producer yet' });
             return;
         }
     
-        const transport = transports.get(transportId);
-        console.log(transport);
+        const transport = await transports.get(transportId);
+        
         if (!transport) {
             callback({ error: 'Invalid transport' });
             return;
         }
-    
+        console.log("Transport found", transportId);
         try {
             const consumer = await transport.consume({
                 producerId: producer.id,
@@ -143,7 +148,7 @@ io.on('connection', (socket) => {
                 paused: false,
             });
     
-            console.log(`✔️ Created consumer for producer ${producer.id}`);
+            console.log(`Created consumer for producer ${producer.id}`);
     
             callback({
                 id: consumer.id, 
@@ -152,6 +157,7 @@ io.on('connection', (socket) => {
                 type: consumer.type,
                 producerId: producer.id,
             });
+            console.log("Transport callback sent");
         } catch (error) {
             console.error('Error creating consumer:', error);
             callback({ error: 'Failed to create consumer' });
