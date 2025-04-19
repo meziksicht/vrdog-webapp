@@ -2,10 +2,9 @@
   "name": "vrdog-webapp",
   "version": "1.0.0",
   "description": "FRONTEND / BACKEND",
-  "main": "main.js",
-  "scripts": {
-    "start": "node main.js",
-    "dev": "nodemon main.js"
+  "main": "main.js",  "scripts": {
+    "start": "npm run build && node main.js",
+    "build": "webpack --config webpack.config.js"
   },
   "keywords": [],
   "author": "",

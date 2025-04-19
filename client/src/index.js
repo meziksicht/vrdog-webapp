@@ -1,0 +1,93 @@
+import { Device } from 'mediasoup-client';
+
+const socket = io();
+const videoElement = document.getElementById('remoteVideo');
+document.body.addEventListener('click', () => {
+    if (videoElement.paused) {
+        videoElement.play();
+    }
+});
+
+let device;
+let recvTransport;
+
+socket.on('connect', async () => {
+    console.log(`Connected with sessionId: ${socket.id}`);
+
+
+    const rtpCapabilities = await new Promise((resolve) => {
+        socket.emit('getRtpCapabilities', resolve);
+        socket.on('rtpCapabilities', (capabilities) => {
+            resolve(capabilities); 
+        });
+    });
+    console.log('Received RTP Capabilities:', rtpCapabilities);
+
+    device = new Device();
+    await device.load({ routerRtpCapabilities: rtpCapabilities });
+    console.log(device)
+
+    const transportInfo = await new Promise((resolve) => {
+        socket.emit('createTransport', resolve);
+    });
+
+    console.log('Transport created on client:', transportInfo.id);
+
+    recvTransport = device.createRecvTransport(transportInfo);
+    console.log('recvTransport created:', recvTransport.id);
+
+    recvTransport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+        console.log('recvTransport connect event');
+        await socket.emit(
+            'connectTransport',
+            { transportId: recvTransport.id, dtlsParameters },
+            () => {
+                console.log('Transport connected to server');
+                callback();
+            }
+        );
+    });
+
+    recvTransport.on('connectionstatechange', (state) => {
+        console.log('recvTransport connection state:', state);
+    });
+    console.log("consume???")
+    socket.emit(
+        'consume',
+        {
+            transportId: recvTransport.id,
+            rtpCapabilities: device.rtpCapabilities,
+        },
+        async (consumerParams) => {
+            try {
+                console.log('Received consumer params:', consumerParams);
+
+                if (!consumerParams.id) {
+                    throw new Error('Consumer ID is missing!');
+                }
+    
+                const consumer = await recvTransport.consume(consumerParams);
+                console.log('Consumer created:', consumer);
+    
+                const stream = new MediaStream();
+                stream.addTrack(consumer.track);
+                videoElement.srcObject = stream;
+    
+                videoElement.onloadedmetadata = () => {
+                    console.log('Video metadata loaded ✅');
+                    videoElement.play().catch(e => console.error('Video play failed:', e));
+                };
+    
+                videoElement.onerror = (e) => {
+                    console.error('Video element error:', e);
+                };
+    
+                console.log('Stream assigned to video');
+            } catch (err) {
+                console.error('Error while consuming media:', err);
+            }
+        }
+    );
+    
+    
+});
