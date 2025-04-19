@@ -36,11 +36,26 @@ const transports = new Map();
                     },
                 },
             ],
+            logLevel: 'warn',
+            logTags: [
+                'info',
+                'ice',
+                'dtls',
+                'rtp',
+                'srtp',
+                'rtcp',
+                'rtx',
+                'bwe',
+                'score',
+                'simulcast',
+                'svc',
+                'sctp',
+            ],
         });
         console.log('Mediasoup router created');
 
         plainTransport = await router.createPlainTransport({
-            listenIp: '0.0.0.0',
+            listenIp: '127.0.0.1',
             rtcpMux: false,
             comedia: true,
         });
@@ -51,8 +66,12 @@ const transports = new Map();
 
         plainTransport.on('tuple', async () => {
             if (producer) return;
-            console.log("frames")
-            console.log('Incoming RTP from FFmpeg at:', plainTransport.tuple.remoteIp, plainTransport.tuple.remotePort);
+            console.log('frames');
+            console.log(
+                'Incoming RTP from FFmpeg at:',
+                plainTransport.tuple.remoteIp,
+                plainTransport.tuple.remotePort
+            );
 
             try {
                 producer = await plainTransport.produce({
@@ -82,30 +101,27 @@ const transports = new Map();
     }
 })();
 
-
 io.on('connection', (socket) => {
     console.log(`Client connected — sessionId: ${socket.id}`);
 
     socket.on('getRtpCapabilities', () => {
-        
         if (!router) {
             console.error('Router is not initialized yet');
             return;
         }
         socket.emit('rtpCapabilities', router.rtpCapabilities);
     });
- 
 
     socket.on('createTransport', async (callback) => {
         const transport = await router.createWebRtcTransport({
-            listenIps: [{ ip: '0.0.0.0', announcedIp: 'YOUR_PUBLIC_IP' }],
+            listenIps: [{ ip: '0.0.0.0', announcedIp: '127.0.0.1' }],
             enableUdp: true,
             enableTcp: true,
             preferUdp: true,
         });
-        
+
         transports.set(transport.id, transport);
-        console.log("Transport created", transport.id)
+        console.log('Transport created', transport.id);
         callback({
             id: transport.id,
             iceParameters: transport.iceParameters,
@@ -113,57 +129,60 @@ io.on('connection', (socket) => {
             dtlsParameters: transport.dtlsParameters,
         });
     });
-    
 
-    socket.on('connectTransport', async ({ transportId, dtlsParameters }, callback) => {
-        try {
-            const transport = transports.get(transportId);
-            await transport.connect({ dtlsParameters });
-            console.log(`✅ Transport ${transportId} connected`);
-            callback(); // ✅ Acknowledge back to client
-        } catch (err) {
-            console.error('❌ Error connecting transport:', err);
-            callback({ error: err.message }); // Optional: send back error info
+    socket.on(
+        'connectTransport',
+        async ({ transportId, dtlsParameters }, callback) => {
+            try {
+                const transport = transports.get(transportId);
+                await transport.connect({ dtlsParameters });
+                console.log(`Transport ${transportId} connected`);
+                callback();
+            } catch (err) {
+                console.error('Error connecting transport:', err);
+                callback({ error: err.message }); // Optional: send back error info
+            }
         }
-    });
-    
+    );
 
     socket.on('consume', async ({ transportId, rtpCapabilities }, callback) => {
         if (!producer) {
             callback({ error: 'No producer yet' });
             return;
         }
-    
+
         const transport = await transports.get(transportId);
-        
+
         if (!transport) {
             callback({ error: 'Invalid transport' });
             return;
         }
-        console.log("Transport found", transportId);
+        console.log('Transport found', transportId);
         try {
             const consumer = await transport.consume({
                 producerId: producer.id,
                 rtpCapabilities,
-                paused: false,
+                paused: true,
             });
-    
+
             console.log(`Created consumer for producer ${producer.id}`);
-    
+
             callback({
-                id: consumer.id, 
+                id: consumer.id,
                 kind: consumer.kind,
                 rtpParameters: consumer.rtpParameters,
                 type: consumer.type,
                 producerId: producer.id,
             });
-            console.log("Transport callback sent");
+            console.log('Transport callback sent');
+            socket.on('consumerCreated', async () => {
+                consumer.resume();
+            });
         } catch (error) {
             console.error('Error creating consumer:', error);
             callback({ error: 'Failed to create consumer' });
         }
     });
-    
 });
 
 const PORT = 3000;

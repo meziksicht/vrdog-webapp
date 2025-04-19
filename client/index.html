@@ -10,14 +10,29 @@
                 height: 480px;
                 background: black;
             }
-            
         </style>
     </head>
     <body>
         <h2>vrdog livestream</h2>
-        <video id="remoteVideo" autoplay playsinline muted></video>
+        <video id="remoteVideo" playsinline muted></video>
 
         <script src="/socket.io/socket.io.js"></script>
-        <script src="dist/bundle.js"></script> <!-- This is the bundled file -->
+        <script>
+            window.localStorage.setItem(
+                'debug',
+                'mediasoup-client:WARN* mediasoup-client:ERROR*'
+            );
+            const videoElement = document.getElementById('remoteVideo');
+            document.body.addEventListener('click', () => {
+                if (videoElement.srcObject) {
+                    console.log("Playable")
+                    videoElement
+                        .play()
+                        .then(() => console.log('Playback started!'));
+                }
+            });
+        </script>
+        <script src="dist/bundle.js"></script>
+        <!-- This is the bundled file -->
     </body>
 </html>
