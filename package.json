@@ -2,7 +2,8 @@
   "name": "vrdog-webapp",
   "version": "1.0.0",
   "description": "FRONTEND / BACKEND",
-  "main": "main.js",  "scripts": {
+  "main": "main.js",
+  "scripts": {
     "start": "npm run build && node main.js",
     "build": "webpack --config webpack.config.js"
   },
@@ -16,7 +17,7 @@
   ],
   "devDependencies": {
     "nodemon": "^3.1.9",
-    "prettier": "3.5.3",
+    "prettier": "^3.5.3",
     "typescript": "^5.8.2"
   },
   "dependencies": {
