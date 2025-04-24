@@ -3,6 +3,8 @@
     Using mediasoup, converts RTP video source to a WebRTC web friendly source, consumable on the frontend.
 */
 
+const os = require('os');
+const readline = require('readline');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -34,8 +36,67 @@ let producer;
 /** @type {Map<string, mediasoup.types.WebRtcTransport>} */
 const transports = new Map();
 
+/** @type {string} */
+let selectedIp;
+
+/**
+ * Lists all local IP addresses.
+ */
+function listLocalIps() {
+    const interfaces = os.networkInterfaces();
+    const ips = [];
+
+    for (const [name, iface] of Object.entries(interfaces)) {
+        for (const net of iface) {
+            if (net.family === 'IPv4' && !net.internal) {
+                ips.push({ name, address: net.address });
+            }
+        }
+    }
+
+    return ips;
+}
+
+/**
+ * Prompts for an IP to listen on.
+ *
+ * @param {{name: string, address: string}[]} ips - List of local IPs to select from
+ *
+ */
+async function promptForIp(ips) {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+
+    return new Promise((resolve) => {
+        console.log('Select the IP address to use:');
+        ips.forEach((ip, i) => {
+            console.log(`[${i}] ${ip.name} - ${ip.address}`);
+        });
+
+        rl.question('Enter number: ', (answer) => {
+            rl.close();
+            const selected = ips[parseInt(answer)];
+            if (!selected) {
+                console.error('Invalid selection.');
+                process.exit(1);
+            }
+            resolve(selected.address);
+        });
+    });
+}
+
 //RTP producer creation (source of media)
 (async () => {
+    const ips = listLocalIps();
+    if (ips.length === 0) {
+        console.error('No non-internal IPv4 addresses found');
+        process.exit(1);
+    }
+
+    selectedIp = await promptForIp(ips);
+    console.log('Selected IP:', selectedIp);
     try {
         worker = await mediasoup.createWorker();
         console.log('Mediasoup worker created');
@@ -72,18 +133,19 @@ const transports = new Map();
         console.log('Mediasoup router created');
 
         plainTransport = await router.createPlainTransport({
-            listenIp: '127.0.0.1',
+            listenIp: selectedIp,
             rtcpMux: false,
             comedia: true,
         });
 
         console.log('Robot RTP transport listening:');
+        console.log('IP address', selectedIp);
         console.log('RTP port:', plainTransport.tuple.localPort);
         console.log('RTCP port:', plainTransport.rtcpTuple.localPort);
 
         plainTransport.on('tuple', async () => {
             console.log(
-                'Incoming RTP from FFmpeg at:',
+                'Incoming RTP at:',
                 plainTransport.tuple.remoteIp,
                 plainTransport.tuple.remotePort
             );
@@ -142,7 +204,7 @@ io.on('connection', (socket) => {
      */
     socket.on('createTransport', async (callback) => {
         const transport = await router.createWebRtcTransport({
-            listenIps: [{ ip: '0.0.0.0', announcedIp: '127.0.0.1' }],
+            listenIps: [{ ip: '0.0.0.0', announcedIp: selectedIp }],
             enableUdp: true,
             enableTcp: true,
             preferUdp: true,
@@ -166,17 +228,20 @@ io.on('connection', (socket) => {
      * @param {{ transportId: string, dtlsParameters: any }} params
      * @param {Function} callback - Signals transport connection success/failure.
      */
-    socket.on('connectTransport', async ({ transportId, dtlsParameters }, callback) => {
-        try {
-            const transport = transports.get(transportId);
-            await transport.connect({ dtlsParameters });
-            console.log(`Transport ${transportId} connected`);
-            callback();
-        } catch (err) {
-            console.error('Error connecting transport:', err);
-            callback({ error: err.message });
+    socket.on(
+        'connectTransport',
+        async ({ transportId, dtlsParameters }, callback) => {
+            try {
+                const transport = transports.get(transportId);
+                await transport.connect({ dtlsParameters });
+                console.log(`Transport ${transportId} connected`);
+                callback();
+            } catch (err) {
+                console.error('Error connecting transport:', err);
+                callback({ error: err.message });
+            }
         }
-    });
+    );
 
     /**
      * Handles consumer creation request from client.
@@ -236,7 +301,6 @@ io.on('connection', (socket) => {
         }
     });
 });
-
 
 const PORT = 3000;
 server.listen(PORT, () => {
