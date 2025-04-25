@@ -1,38 +1,64 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Mediasoup Client</title>
-        <style>
-            video {
-                width: 640px;
-                height: 480px;
-                background: black;
-            }
-        </style>
-    </head>
-    <body>
-        <h2>vrdog livestream</h2>
-        <video id="remoteVideo" playsinline muted></video>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mediasoup Client</title>
+    <style>
+        video {
+            width: 640px;
+            height: 480px;
+            background: black;
+        }
 
-        <script src="/socket.io/socket.io.js"></script>
-        <script>
-            window.localStorage.setItem(
-                'debug',
-                'mediasoup-client:WARN* mediasoup-client:ERROR*'
-            );
-            const videoElement = document.getElementById('remoteVideo');
-            document.body.addEventListener('click', () => {
-                if (videoElement.srcObject) {
-                    console.log("Playable")
-                    videoElement
-                        .play()
-                        .then(() => console.log('Playback started!'));
-                }
-            });
-        </script>
-        <script src="dist/bundle.js"></script>
-        <!-- This is the bundled file -->
-    </body>
+        #notification {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 10px;
+            background: red;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div id="notification">🔴 Stream is offline</div>
+<h2>vrdog livestream</h2>
+<video id="remoteVideo" playsinline muted></video>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    const videoElement = document.getElementById('remoteVideo');
+    const notification = document.getElementById('notification');
+
+    window.localStorage.setItem(
+        'debug',
+        'mediasoup-client:WARN* mediasoup-client:ERROR*'
+    );
+
+    document.body.addEventListener('click', () => {
+        if (videoElement.srcObject) {
+            videoElement
+                .play()
+                .then(() => console.log('Playback started!'));
+        }
+    });
+
+    socket.on('mediaStopped', () => {
+        console.log('🔴 Media stopped');
+        notification.style.display = 'block';
+    });
+
+    socket.on('mediaResumed', () => {
+        console.log('✅ Media resumed');
+        notification.style.display = 'none';
+        // Optionally trigger re-consume logic here
+    });
+</script>
+<script src="dist/bundle.js"></script>
+</body>
 </html>

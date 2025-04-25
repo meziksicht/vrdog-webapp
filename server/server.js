@@ -1,8 +1,3 @@
-/*
-    Backend for transmission of data between the dog and client.
-    Using mediasoup, converts RTP video source to a WebRTC web friendly source, consumable on the frontend.
-*/
-
 const os = require('os');
 const readline = require('readline');
 const express = require('express');
@@ -14,38 +9,25 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     connectionStateRecovery: {
-        maxDisconnectionDuration: 2 * 60 * 1000, //2 minutes
+        maxDisconnectionDuration: 2 * 60 * 1000,
         skipMiddlewares: true,
     },
 });
 
 app.use(express.static(__dirname + '/../client'));
 
-/** @type {mediasoup.types.Worker<mediasoup.types.AppData>} */
 let worker;
-
-/** @type {mediasoup.types.Router<mediasoup.types.AppData>} */
 let router;
-
-/** @type {mediasoup.types.PlainTransport<mediasoup.types.AppData>}*/
 let plainTransport;
-
-/** @type {mediasoup.types.Producer<mediasoup.types.AppData>}*/
 let producer;
-
-/** @type {Map<string, mediasoup.types.WebRtcTransport>} */
+let isExpectingProducer = true;
 const transports = new Map();
-
-/** @type {string} */
 let selectedIp;
+let rtpTimeout;
 
-/**
- * Lists all local IP addresses.
- */
 function listLocalIps() {
     const interfaces = os.networkInterfaces();
     const ips = [];
-
     for (const [name, iface] of Object.entries(interfaces)) {
         for (const net of iface) {
             if (net.family === 'IPv4' && !net.internal) {
@@ -53,28 +35,14 @@ function listLocalIps() {
             }
         }
     }
-
     return ips;
 }
 
-/**
- * Prompts for an IP to listen on.
- *
- * @param {{name: string, address: string}[]} ips - List of local IPs to select from
- *
- */
 async function promptForIp(ips) {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
-
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return new Promise((resolve) => {
         console.log('Select the IP address to use:');
-        ips.forEach((ip, i) => {
-            console.log(`[${i}] ${ip.name} - ${ip.address}`);
-        });
-
+        ips.forEach((ip, i) => console.log(`[${i}] ${ip.name} - ${ip.address}`));
         rl.question('Enter number: ', (answer) => {
             rl.close();
             const selected = ips[parseInt(answer)];
@@ -87,7 +55,45 @@ async function promptForIp(ips) {
     });
 }
 
-//RTP producer creation (source of media)
+const monitorProducer = () => {
+    const checkInterval = 5000;
+    let lastPacketCount = 0;
+    let stuckCount = 0;
+    const maxStuckChecks = 3;
+
+    clearInterval(rtpTimeout);
+    rtpTimeout = setInterval(async () => {
+        if (!producer || producer.closed) return;
+
+        try {
+            const statsArray = await producer.getStats();
+            for (const stat of statsArray) {
+                const currentCount = stat.packetCount || stat.packetsReceived || 0;
+
+                if (currentCount > lastPacketCount) {
+                    lastPacketCount = currentCount;
+                    stuckCount = 0;
+                    console.log(`[DEBUG] Packets flowing — total: ${currentCount}`);
+                } else {
+                    stuckCount++;
+                    console.log(`[DEBUG] No packet increase detected (${stuckCount}/${maxStuckChecks})`);
+                }
+
+                if (stuckCount >= maxStuckChecks) {
+                    console.warn('No RTP packets flowing — closing producer');
+                    producer.close();
+                    io.emit('mediaStopped');
+                    isExpectingProducer = true;
+                    clearInterval(rtpTimeout);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.error('Error getting producer stats:', err);
+        }
+    }, checkInterval);
+};
+
 (async () => {
     const ips = listLocalIps();
     if (ips.length === 0) {
@@ -97,6 +103,7 @@ async function promptForIp(ips) {
 
     selectedIp = await promptForIp(ips);
     console.log('Selected IP:', selectedIp);
+
     try {
         worker = await mediasoup.createWorker();
         console.log('Mediasoup worker created');
@@ -114,21 +121,6 @@ async function promptForIp(ips) {
                     },
                 },
             ],
-            logLevel: 'warn',
-            logTags: [
-                'info',
-                'ice',
-                'dtls',
-                'rtp',
-                'srtp',
-                'rtcp',
-                'rtx',
-                'bwe',
-                'score',
-                'simulcast',
-                'svc',
-                'sctp',
-            ],
         });
         console.log('Mediasoup router created');
 
@@ -139,18 +131,16 @@ async function promptForIp(ips) {
         });
 
         console.log('Robot RTP transport listening:');
-        console.log('IP address', selectedIp);
         console.log('RTP port:', plainTransport.tuple.localPort);
         console.log('RTCP port:', plainTransport.rtcpTuple.localPort);
 
         plainTransport.on('tuple', async () => {
-            console.log(
-                'Incoming RTP at:',
-                plainTransport.tuple.remoteIp,
-                plainTransport.tuple.remotePort
-            );
+            console.log('Received RTP on plainTransport');
+            if (!isExpectingProducer || (producer && !producer.closed)) return;
 
             try {
+                console.log('Reopening producer due to new RTP stream...');
+
                 producer = await plainTransport.produce({
                     kind: 'video',
                     rtpParameters: {
@@ -165,13 +155,21 @@ async function promptForIp(ips) {
                                 },
                             },
                         ],
-                        //IMPORTANT TO IDENTIFY THE RTP SOURCE
                         encodings: [{ ssrc: 22222222 }],
                     },
                 });
-                console.log('RTP producer from robot is active');
+
+                console.log('Producer reopened successfully.');
+                isExpectingProducer = false;
+                monitorProducer();
+
+                producer.on('trackended', () => {
+                    console.log('Producer track ended');
+                    io.emit('mediaStopped');
+                    isExpectingProducer = true;
+                });
             } catch (err) {
-                console.error('Failed to create producer:', err);
+                console.error('Error creating producer:', err);
             }
         });
     } catch (err) {
@@ -179,29 +177,14 @@ async function promptForIp(ips) {
     }
 })();
 
-// Signaling server connecting the producer (video stream from robot) to the consumer on the client
 io.on('connection', (socket) => {
     console.log(`Client connected — sessionId: ${socket.id}`);
 
-    /**
-     * Sends router RTP capabilities to client for codec negotiation.
-     * Client should call this immediately after connecting to be able to load the mediasoup Device.
-     */
     socket.on('getRtpCapabilities', () => {
-        if (!router) {
-            console.error('Router is not initialized yet');
-            return;
-        }
+        if (!router) return;
         socket.emit('rtpCapabilities', router.rtpCapabilities);
     });
 
-    /**
-     * Creates a new WebRTC transport for the connected client.
-     * Client will use this transport to consume the video stream.
-     *
-     * @param {Function} callback - Called with transport parameters:
-     *   { id, iceParameters, iceCandidates, dtlsParameters }
-     */
     socket.on('createTransport', async (callback) => {
         const transport = await router.createWebRtcTransport({
             listenIps: [{ ip: '0.0.0.0', announcedIp: selectedIp }],
@@ -211,8 +194,6 @@ io.on('connection', (socket) => {
         });
 
         transports.set(transport.id, transport);
-        console.log('Transport created', transport.id);
-
         callback({
             id: transport.id,
             iceParameters: transport.iceParameters,
@@ -221,40 +202,16 @@ io.on('connection', (socket) => {
         });
     });
 
-    /**
-     * Handles client request to connect its WebRTC transport.
-     * Called once client transport emits its 'connect' event.
-     *
-     * @param {{ transportId: string, dtlsParameters: any }} params
-     * @param {Function} callback - Signals transport connection success/failure.
-     */
-    socket.on(
-        'connectTransport',
-        async ({ transportId, dtlsParameters }, callback) => {
-            try {
-                const transport = transports.get(transportId);
-                await transport.connect({ dtlsParameters });
-                console.log(`Transport ${transportId} connected`);
-                callback();
-            } catch (err) {
-                console.error('Error connecting transport:', err);
-                callback({ error: err.message });
-            }
+    socket.on('connectTransport', async ({ transportId, dtlsParameters }, callback) => {
+        try {
+            const transport = transports.get(transportId);
+            await transport.connect({ dtlsParameters });
+            callback();
+        } catch (err) {
+            callback({ error: err.message });
         }
-    );
+    });
 
-    /**
-     * Handles consumer creation request from client.
-     * Creates a consumer for the video producer and returns necessary parameters to client.
-     * Client should call `consumer.resume()` only after it's ready to start receiving media.
-     *
-     * @param {{
-     *   transportId: string,
-     *   rtpCapabilities: mediasoup.types.RtpCapabilities
-     * }} data - Request data with transport and capabilities.
-     * @param {Function} callback - Sends consumer parameters to client:
-     *   { id, kind, rtpParameters, type, producerId }
-     */
     socket.on('consume', async ({ transportId, rtpCapabilities }, callback) => {
         if (!producer) {
             callback({ error: 'No producer yet' });
@@ -267,16 +224,12 @@ io.on('connection', (socket) => {
             return;
         }
 
-        console.log('Transport found', transportId);
-
         try {
             const consumer = await transport.consume({
                 producerId: producer.id,
                 rtpCapabilities,
-                paused: true, // optimization: resume only when client ready
+                paused: true,
             });
-
-            console.log(`Created consumer for producer ${producer.id}`);
 
             callback({
                 id: consumer.id,
@@ -286,17 +239,10 @@ io.on('connection', (socket) => {
                 producerId: producer.id,
             });
 
-            console.log('Transport callback sent');
-
-            /**
-             * Client should call this event once it's ready to consume the stream.
-             * Resumes the paused consumer to start video delivery.
-             */
             socket.on('consumerCreated', async () => {
                 consumer.resume();
             });
         } catch (error) {
-            console.error('Error creating consumer:', error);
             callback({ error: 'Failed to create consumer' });
         }
     });
