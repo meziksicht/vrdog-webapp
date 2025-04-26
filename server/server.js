@@ -177,6 +177,7 @@ const monitorProducer = () => {
     }
 })();
 
+//TODO: later
 io.on('connection', (socket) => {
     console.log(`Client connected — sessionId: ${socket.id}`);
 
