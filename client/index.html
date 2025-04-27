@@ -29,6 +29,39 @@
 <h2>vrdog livestream</h2>
 <video id="remoteVideo" playsinline muted></video>
 
+<!--- Testing location data -->
+<button id="testButton" onclick="buttonOnClick()">Test</button>
+<script>
+    const buttonOnClick = async () => {
+
+        function getRandomFloat(min, max, decimals) {
+            const random = Math.random() * (max - min) + min;
+            return parseFloat(random.toFixed(decimals));
+        }
+
+        console.log(" --- Starting location data test ---")
+
+        var locationArray = [0.0, 0.0]
+        //var locationArray = [6, 3] //bad values - integers
+
+        locationArray[0] = getRandomFloat(1, 100, 3); // od 1 do 100 na 3 des. mista
+        locationArray[1] = getRandomFloat(1, 100, 3); // od 1 do 100 na 3 des. mista
+
+        socket.emit(
+            'locationHandling',
+            {
+                locationArray: locationArray
+            },
+            async (params) => {
+                console.log("First: " + params.locationArray[0])
+                console.log("Second: " + params.locationArray[1])
+                console.log(" --- Ending location data test ---");
+            }
+        );
+    }
+</script>
+
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
     const socket = io();
