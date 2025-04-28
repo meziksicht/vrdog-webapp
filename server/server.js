@@ -318,6 +318,38 @@ io.on('connection', (socket) => {
             callback({ error: 'Failed to create consumer' });
         }
     });
+
+    //Location handling
+    socket.on('locationHandling', async ({ locationArray }, callback) => {
+
+        function LocationValidationError(message) {
+            const error = new Error(message);
+            error.name = 'LocationValidationError';
+            return error;
+        }
+
+        try {
+            // Checking if a value is a float
+            function isFloat(value) {
+                return typeof value === 'number' && !Number.isInteger(value);
+            }
+
+            console.log("Starting location values validation")
+            if (isFloat(locationArray[0]) && locationArray[1]) {
+                //TODO: some more checks?
+                callback({
+                    locationArray: locationArray,
+                })
+                console.log("Location validation was successful")
+                return;
+            }
+            throw new LocationValidationError("Location validation failed");
+        }
+        catch (error) {
+            console.log("Location validation failed");
+            callback({ locationArray: [0.0, 0.0] });
+        }
+    });
 });
 
 const PORT = 3000;
