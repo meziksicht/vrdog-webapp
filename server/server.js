@@ -337,6 +337,7 @@ io.on('connection', (socket) => {
             console.log("Starting location values validation")
             if (isFloat(locationArray[0]) && locationArray[1]) {
                 //TODO: some more checks?
+                socket.broadcast.emit("location", locationArray)
                 callback({
                     locationArray: locationArray,
                 })
