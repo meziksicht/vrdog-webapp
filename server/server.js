@@ -199,15 +199,14 @@ const monitorProducer = () => {
         //Create a transport that listens for raw RTP - from the robot
         plainTransport = await router.createPlainTransport({
             listenIp: selectedIp,
-            rtcpMux: false, // RTP and RTCP on separate ports
+            rtcpMux:true, // RTP and RTCP on same ports
             comedia: true,  // Server will accept packets from any source - IP/port
+            port: 17000, //static port for RTP and RTCP
         });
 
         console.log('[Info] Robot RTP transport listening:');
         console.log('[Info] IP address', selectedIp);
         console.log('[Info] RTP port:', plainTransport.tuple.localPort);
-        console.log('[Info] RTCP port:', plainTransport.rtcpTuple.localPort);
-
         // When RTP packets arrive, attempt to create a producer if necessary
         plainTransport.on('tuple', async () => {
             console.log('[RTP] Incoming RTP detected at:', plainTransport.tuple.remoteIp, plainTransport.tuple.remotePort);
